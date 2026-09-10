@@ -141,8 +141,8 @@ The UNIT is compiled with:
 {$SCOPEDENUMS ON}
 ```
 
-Consequently, `TRegExMatcherOption` values must be referenced using their enum
-type, for example:
+Consequently, `TRegExMatcherOption` values must be referenced using their
+enum type, for example:
 
 ```delphi
 TRegExMatcherOption.HashNumeric
