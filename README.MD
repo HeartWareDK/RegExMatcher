@@ -410,6 +410,7 @@ This includes letters such as:
 It does nothing by itself.
 
 Its effect is:
+```text
 ┌──────────────┬─────────────────────────────────┬────────────────────────────────────┐
 │ Mask element │ Without `Unicode`               │ With `Unicode`                     │
 ├──────────────┼─────────────────────────────────┼────────────────────────────────────┤
@@ -417,6 +418,7 @@ Its effect is:
 │ `$`          │ one or more ASCII digits        │ one or more Unicode decimal digits │
 │ `@`          │ one ASCII letter `A-Z` or `a-z` │ one Unicode letter                 │
 └──────────────┴─────────────────────────────────┴────────────────────────────────────┘
+```
 
 For example:
 
@@ -1005,6 +1007,7 @@ Here `\$` is a literal dollar sign while `*` remains a wildcard.
 
 With all syntax options enabled, the principal syntax is:
 
+```text
 ┌─────────────────┬───────────────────────────────────────────────────────────┬──────────────────────────────┐
 │ Syntax          │ Meaning                                                   │ Option(s)                    │
 ├─────────────────┼───────────────────────────────────────────────────────────┼──────────────────────────────┤
@@ -1029,6 +1032,7 @@ With all syntax options enabled, the principal syntax is:
 │ `\\`            │ literal `\`                                               │ BackslashEscaping            │
 │ CR, LF or CR/LF │ one logical line ending when `LineEndings` is enabled     │ LineEndings                  │
 └─────────────────┴───────────────────────────────────────────────────────────┴──────────────────────────────┘
+```
 
 `Unicode` extends the meanings of `#`, `$` and `@` from ASCII digits and
 letters to their Unicode equivalents.
