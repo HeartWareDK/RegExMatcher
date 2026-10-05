@@ -65,6 +65,13 @@ TYPE
                                     CLASS FUNCTION Create(CONST Value : STRING) : TRegExMatcherOption; static;
                                   END;
 
+VAR
+  AlphaPattern  : STRING = 'A-Za-z';
+  NumberPattern : STRING = '0-9';
+
+CONST
+  WesternLetters = 'a-zA-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿŒœŸ';
+
 FUNCTION RegExMatcherStr(CONST Options : TRegExMatcherOptions) : STRING;
 FUNCTION RegExMatcherVal(CONST Value : STRING) : TRegExMatcherOptions;
 
@@ -76,34 +83,31 @@ IMPLEMENTATION
 
 USES System.SysUtils, System.RTTI;
 
-FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatcherOptions = [TRegExMatcherOption.StarWildCard,TRegExMatcherOption.QuestionWildCard] ; Anchored : BOOLEAN) : TRegEx;
+FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatcherOptions ; Anchored : BOOLEAN) : TRegEx;
   VAR
     I,CurlyEnd : INTEGER;
     R          : STRING;
 
+
   FUNCTION NumberSetPattern : STRING;
     BEGIN
-      Result:=IF TRegExMatcherOption.Unicode IN Options THEN '\p{N}' ELSE '0-9'
-    END;
-
-  FUNCTION NumberPattern : STRING;
-    BEGIN
-      Result:=IF TRegExMatcherOption.Unicode IN Options THEN NumberSetPattern ELSE '['+NumberSetPattern+']'
+      Result:=IF TRegExMatcherOption.Unicode IN Options THEN
+                '\p{Nd}'
+              ELSE
+                NumberPattern
     END;
 
   FUNCTION AlphaSetPattern : STRING;
     BEGIN
-      Result:=IF TRegExMatcherOption.Unicode IN Options THEN '\p{L}'  ELSE Result:='A-Za-z'
-    END;
-
-  FUNCTION AlphaPattern : STRING;
-    BEGIN
-      Result:=IF TRegExMatcherOption.Unicode IN Options THEN AlphaSetPattern ELSE Result:='['+AlphaSetPattern+']'
+      Result:=IF TRegExMatcherOption.Unicode IN Options THEN
+                '\p{L}'
+              ELSE
+                AlphaPattern
     END;
 
   FUNCTION WordAlphaNumericSetPattern : STRING;
     BEGIN
-      Result:=AlphaSetPattern+NumberSetPattern // IF TRegExMatcherOption.Unicode IN Options THEN AlphaSetPattern+'\p{N}' ELSE AlphaSetPattern+'0-9'
+      Result:=AlphaSetPattern+NumberSetPattern
     END;
 
   FUNCTION FindCurlyEnd(CONST StartPos : INTEGER) : INTEGER;
@@ -114,11 +118,11 @@ FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatche
       Result:=0; J:=SUCC(StartPos);
 
       WHILE J<=Length(Mask) DO BEGIN
-        {
+        (*
           Inside {...}, braces can always be escaped with a backslash,
           independently of BackslashEscaping. If BackslashEscaping is
           enabled, its normal escaping rules apply as well.
-        }
+        *)
         IF (Mask[J]='\') AND (J<Length(Mask)) AND ((TRegExMatcherOption.BackslashEscaping IN Options) OR CharInSet(Mask[SUCC(J)],['{','}'])) THEN
           INC(J,2)
         ELSE IF Mask[J]='{' THEN
@@ -196,11 +200,11 @@ FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatche
           immediately following character.
         }
         IF (CurlyEnd>0) AND (Mask[K]='\') AND (SUCC(K)<J) AND CharInSet(Mask[SUCC(K)],['{','}']) THEN BEGIN
-          { Curly-brace escaping remains active inside sets within {...}. }
+          // Curly-brace escaping remains active inside sets within {...}.
           INC(K);
           AddSetLiteral(S,Mask[K],TRUE)
         END ELSE IF (TRegExMatcherOption.BackslashEscaping IN Options) AND (Mask[K]='\') THEN
-          IF SUCC(K)>=J THEN 
+          IF SUCC(K)>=J THEN
             AddSetLiteral(S,'\',TRUE)
           ELSE BEGIN
             INC(K);
@@ -226,17 +230,18 @@ FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatche
         INC(K)
       END;
 
-      R:=R+'['+(IF Negaed THEN '^' ELSE '')+S+']';
+      R:=R+'['+(IF Negated THEN '^' ELSE '')+S+']';
       I:=J;
       Result:=TRUE
     END;
 
   BEGIN
-    R:=IF Anchored THEN '\A' ELSE '';
+    IF TRegExMatcherOption.Unicode IN Options THEN R:='(*UTF)(*UCP)';
+    IF Anchored THEN R:=R+'\A';
     I:=1;
     CurlyEnd:=0;
     WHILE I<=Length(Mask) DO BEGIN
-      {
+      (*
         CurlyBracketsWord's mandatory brace escaping gets first priority while
         inside a {...} segment. Normal BackslashEscaping is then applied.
 
@@ -250,15 +255,15 @@ FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatche
           \{   literal {
           \}   literal }
           \\   literal \
-      }
+      *)
       IF I=CurlyEnd THEN BEGIN
         R:=R+'(?!['+WordAlphaNumericSetPattern+'])';
         CurlyEnd:=0
-      ELSE IF (CurlyEnd>0) AND (Mask[I]='\') AND (I<CurlyEnd) AND CharInSet(Mask[I+1],['{','}']) THEN BEGIN
-        {
+      END ELSE IF (CurlyEnd>0) AND (Mask[I]='\') AND (I<CurlyEnd) AND CharInSet(Mask[I+1],['{','}']) THEN BEGIN
+        (*
           Within a CurlyBracketsWord segment, \{ and \} always mean
           literal braces, even when BackslashEscaping is not enabled.
-        }
+        *)
         INC(I);
         AddLiteral(Mask[I])
       END ELSE IF (TRegExMatcherOption.BackslashEscaping IN Options) AND (Mask[I]='\') THEN
@@ -282,9 +287,9 @@ FUNCTION InternalRegExMatcher(CONST Mask : STRING ; CONST Options : TRegExMatche
         R:=R+'(?>\r\n|\r|\n)'
       END ELSE 
         CASE Mask[I] OF
-          '#' : IF TRegExMatcherOption.HashNumeric IN Options THEN R:=R+NumberPattern ELSE AddLiteral(Mask[I]);
-          '$' : IF TRegExMatcherOption.DollarNumeric IN Options THEN R:=R+NumberPattern+'+' ELSE AddLiteral(Mask[I]);
-          '@' : IF TRegExMatcherOption.AlphaAt IN Options THEN R:=R+AlphaPattern ELSE AddLiteral(Mask[I]);
+          '#' : IF TRegExMatcherOption.HashNumeric IN Options THEN R:=R+'['+NumberSetPattern+']' ELSE AddLiteral(Mask[I]);
+          '$' : IF TRegExMatcherOption.DollarNumeric IN Options THEN R:=R+'['+NumberSetPattern+']+' ELSE AddLiteral(Mask[I]);
+          '@' : IF TRegExMatcherOption.AlphaAt IN Options THEN R:=R+'['+AlphaSetPattern+']' ELSE AddLiteral(Mask[I]);
           '*' : IF TRegExMatcherOption.StarWildCard NOT IN Options THEN 
                   AddLiteral(Mask[I])
                 ELSE IF TRegExMatcherOption.LineEndings IN Options THEN
@@ -415,6 +420,52 @@ PROCEDURE UnitTest;
         RegExMatcher(TestMask,TestOptions)
       EXCEPT
         ON E:EConvertError DO Result:=TRUE
+      END
+    END;
+
+
+  PROCEDURE TestCustomPatterns;
+    VAR
+      SavedAlphaPattern,
+      SavedNumberPattern : STRING;
+
+    BEGIN
+      SavedAlphaPattern:=AlphaPattern;
+      SavedNumberPattern:=NumberPattern;
+
+      TRY
+        AlphaPattern:=WesternLetters;
+
+        ASSERT(RegExMatcher('@',
+               [TRegExMatcherOption.AlphaAt,
+                TRegExMatcherOption.CaseSensitive]).IsMatch('Æ'),
+               'Custom AlphaPattern does not affect AlphaAt');
+
+        ASSERT(RegExMatcher('[@]',
+               [TRegExMatcherOption.Sets,
+                TRegExMatcherOption.AlphaAt,
+                TRegExMatcherOption.CaseSensitive]).IsMatch('Ø'),
+               'Custom AlphaPattern does not affect AlphaAt inside sets');
+
+        ASSERT(NOT RegExMatcher('*{CAT}*',
+               [TRegExMatcherOption.StarWildCard,
+                TRegExMatcherOption.CurlyBracketsWord]).IsMatch('ÆCATØ'),
+               'Custom AlphaPattern does not affect CurlyBracketsWord');
+
+        NumberPattern:='0-9٠-٩';
+
+        ASSERT(RegExMatcher('#',
+               [TRegExMatcherOption.HashNumeric]).IsMatch('٣'),
+               'Custom NumberPattern does not affect HashNumeric');
+
+        ASSERT(RegExMatcher('[$]',
+               [TRegExMatcherOption.Sets,
+                TRegExMatcherOption.DollarNumeric]).IsMatch('٧'),
+               'Custom NumberPattern does not affect DollarNumeric inside sets');
+
+      FINALLY
+        AlphaPattern:=SavedAlphaPattern;
+        NumberPattern:=SavedNumberPattern
       END
     END;
 
@@ -1178,6 +1229,8 @@ PROCEDURE UnitTest;
            [TRegExMatcherOption.Sets,TRegExMatcherOption.AlphaAt,TRegExMatcherOption.HashNumeric,TRegExMatcherOption.Unicode]).IsMatch('User-Æ٣ø'),
            'Unicode User mask does not match User-Æ٣ø');
 
+
+    TestCustomPatterns
   END;
 
 END.
