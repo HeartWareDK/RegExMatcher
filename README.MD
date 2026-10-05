@@ -12,7 +12,8 @@ in any commercial context without prior permission from HeartWare. This
 includes direct or indirect commercial use or distribution, including paid
 download sites, subscription services, commercial software collections,
 magazines, books, paid media, or products or services for which money is
-charged.
+charged. It also includes putting this software or links to it on sites
+that are supported by ads.
 
 If you redistribute a modified or derivative version, it must be released
 under this **exact same license**. You may neither add nor remove
@@ -36,7 +37,7 @@ a full monetary refund of the price you paid for it.
 
 ```delphi
 FUNCTION RegExMatcher(
-  CONST Mask    : LongString;
+  CONST Mask    : STRING;
   CONST Options : TRegExMatcherOptions =
     [TRegExMatcherOption.StarWildCard,
      TRegExMatcherOption.QuestionWildCard]
@@ -47,7 +48,8 @@ The matcher is intended to provide a convenient middle ground between simple
 `*` / `?` wildcard matching and writing a regular expression directly.
 
 The generated regular expression always matches the **entire value**. A mask
-therefore describes a complete string, not a substring to search for.
+therefore describes a complete string, not a substring to search for (But see
+the RegExPOS function further down).
 
 By default, matching is **case-insensitive**. Include `CaseSensitive` when an
 exact case-sensitive match is required.
@@ -75,7 +77,8 @@ XABCX
 ```
 
 If you want to do a "Contains" instead of an "Equals", prefix and suffix the
-match with '*' and make sure to include StarWildCard in the options, like this:
+match with '*' and make sure to include StarWildCard in the options, like
+this:
 
 ```text
 Mask:  *ABC*
@@ -99,6 +102,45 @@ merely because they occur in a mask.
 
 ---
 
+# RegExPOS
+
+`RegExPOS` searches a value for the first occurrence matching a mask and
+returns its **1-based** position, or zero if no match is found. It uses the
+same mask syntax and options as `RegExMatcher`.
+
+```delphi
+FUNCTION RegExPOS(
+  CONST Mask,Value : STRING;
+  CONST Options    : TRegExMatcherOptions =
+    [TRegExMatcherOption.StarWildCard,
+     TRegExMatcherOption.QuestionWildCard]
+) : INTEGER;
+```
+
+Unlike `RegExMatcher`, the regular expression used internally by `RegExPOS`
+is not anchored to the beginning and end of the value. There is therefore no
+need to surround the mask with `*` merely to search inside a longer string.
+
+For example:
+
+```delphi
+RegExPOS('ABC','xxxABCyyy',[])
+```
+
+returns `4`, while:
+
+```delphi
+RegExPOS('ABC','xxxyyy',[])
+```
+
+returns `0`.
+
+A wildcard at the beginning of the mask is part of the match. For example,
+`*ABC` may cause the returned position to be earlier than the position of the
+literal `ABC`, because the leading `*` can consume preceding characters.
+
+---
+
 # Options
 
 The available options are:
@@ -115,7 +157,8 @@ TYPE
     BackslashEscaping,
     AlphaAt,
     Unicode,
-    CaseSensitive
+    CaseSensitive,
+    CurlyBracketsWord
   );
 
   TRegExMatcherOptions = SET OF TRegExMatcherOption;
@@ -160,6 +203,54 @@ and option sets are written, for example, as:
 
 ---
 
+# Configurable alphabetic and numeric patterns
+
+The non-Unicode definitions of alphabetic and numeric characters are exposed
+as writable global variables:
+
+```delphi
+VAR
+  AlphaPattern  : STRING = 'A-Za-z';
+  NumberPattern : STRING = '0-9';
+```
+
+These values contain the **inside of a regular-expression character class**.
+Do not include the surrounding square brackets. For example, use
+`A-Za-zÆØÅæøå`, not `[A-Za-zÆØÅæøå]`.
+
+`AlphaPattern` is used by `@`, `[@]` and the alphabetic boundary test used by
+`CurlyBracketsWord`. `NumberPattern` is used by `#`, `$`, `[#]`, `[$]` and the
+numeric boundary test used by `CurlyBracketsWord`.
+
+The UNIT also supplies the convenience constant:
+
+```delphi
+CONST
+  WesternLetters =
+    'a-zA-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞß' +
+    'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿŒœŸ';
+```
+
+For example:
+
+```delphi
+AlphaPattern:=WesternLetters;
+```
+
+changes non-Unicode alphabetic matching from the default `A-Z` / `a-z` to
+the supplied Western-European character set. Applications may similarly
+replace `NumberPattern` when a different non-Unicode numeric character set is
+required.
+
+When `Unicode` is enabled, the Unicode character properties used by the
+matcher take precedence over these two global patterns.
+
+Because these are writable global variables, applications that use the
+matcher concurrently from several threads should normally configure them once
+during initialization and leave them unchanged thereafter.
+
+---
+
 ## `CaseSensitive`
 
 Matching is **case-insensitive by default**. Including `CaseSensitive` changes
@@ -167,6 +258,50 @@ the entire match to case-sensitive matching; it is a global option and
 therefore affects literal text, ranges and sets alike. For example,
 without `CaseSensitive`, `ABC` matches `abc` and `[A-Z]` matches `a`;
 with `CaseSensitive`, those matches fail.
+
+---
+
+## `CurlyBracketsWord`
+
+When enabled, a matched pair of curly brackets marks a word-like segment. The
+brackets themselves are not part of the text to match. The contents continue
+to use the ordinary matcher syntax and any other enabled options.
+
+For example:
+
+```text
+{Option[A-Z]}
+```
+
+with `CurlyBracketsWord` and `Sets` enabled matches `OptionA` through
+`OptionZ` (subject to the global case-sensitivity setting), but only when the
+complete segment has suitable boundaries.
+
+The opening boundary is valid when the segment starts at the beginning of the
+searched value, or when the preceding character is **not** alphabetic or
+numeric. The closing boundary is valid when the segment ends at the end of
+the searched value, or when the following character is **not** alphabetic or
+numeric.
+
+Thus a search for `{CAT}` can match `CAT`, `(CAT)`, `_CAT_` or `CAT!`, but it
+does not match the `CAT` portion of `SCATTER`, `CAT2` or `2CAT`.
+Underscore and punctuation are separators because only alphabetic and
+numeric characters are considered part of a word for this option.
+
+Without `Unicode`, the boundary test uses the current `AlphaPattern` and
+`NumberPattern` values. With `Unicode`, the corresponding Unicode letter and
+number properties are used instead.
+
+Curly brackets inside an active `{...}` segment have stricter escaping rules.
+An unescaped `{` before the closing `}` is invalid and raises an
+`EConvertError`. Literal `{` and `}` characters inside the segment must be
+written as `\{` and `\}`. Those two escapes are recognized inside `{...}`
+even when `BackslashEscaping` is not enabled.
+
+The first unescaped `}` closes the segment. After that point, another `}` is
+an ordinary literal character unless some other syntax gives it meaning.
+`BackslashEscaping`, when enabled, continues to control escaping of other mask
+characters inside the segment.
 
 ---
 
@@ -266,7 +401,8 @@ When enabled:
 
 matches **exactly one digit**.
 
-Without the `Unicode` option this means:
+Without the `Unicode` option this uses `NumberPattern`, whose default value
+is:
 
 ```text
 0-9
@@ -288,11 +424,8 @@ Does not match:
 
 When `HashNumeric` is disabled, `#` is a literal hash character.
 
-When `Unicode` is also enabled, `#` matches a Unicode decimal digit rather
-than only ASCII `0` through `9`.
-
-This includes, for example, decimal digits from writing systems such as
-Arabic-Indic and Devanagari.
+When `Unicode` is also enabled, `#` uses the Unicode Number character
+property rather than `NumberPattern`.
 
 ---
 
@@ -306,7 +439,8 @@ $
 
 matches **one or more digits**.
 
-Without `Unicode`, this is equivalent to:
+Without `Unicode`, this means one or more characters from `NumberPattern`.
+With the default value, this is equivalent to:
 
 ```text
 [0-9]+
@@ -329,7 +463,8 @@ Does not match:
 
 When `DollarNumeric` is disabled, `$` is a literal dollar sign.
 
-When `Unicode` is enabled, `$` accepts one or more Unicode decimal digits.
+When `Unicode` is enabled, `$` accepts one or more Unicode Number
+characters.
 
 ### `$` inside a set
 
@@ -363,7 +498,7 @@ When enabled:
 
 matches **exactly one alphabetic character**.
 
-Without `Unicode`, this means:
+Without `Unicode`, this uses `AlphaPattern`, whose default value is:
 
 ```text
 A-Z
@@ -388,7 +523,7 @@ Does not match:
 When `AlphaAt` is disabled, `@` is a literal at-sign.
 
 When `Unicode` is also enabled, `@` matches any Unicode letter rather than
-only ASCII `A-Z` and `a-z`.
+using `AlphaPattern`.
 
 This includes letters such as:
 
@@ -411,13 +546,13 @@ It does nothing by itself.
 
 Its effect is:
 ```text
-┌──────────────┬─────────────────────────────────┬────────────────────────────────────┐
-│ Mask element │ Without `Unicode`               │ With `Unicode`                     │
-├──────────────┼─────────────────────────────────┼────────────────────────────────────┤
-│ `#`          │ one ASCII digit `0-9`           │ one Unicode decimal digit          │
-│ `$`          │ one or more ASCII digits        │ one or more Unicode decimal digits │
-│ `@`          │ one ASCII letter `A-Z` or `a-z` │ one Unicode letter                 │
-└──────────────┴─────────────────────────────────┴────────────────────────────────────┘
+┌──────────────┬───────────────────────────────┬───────────────────────────────┐
+│ Mask element │ Without `Unicode`             │ With `Unicode`                │
+├──────────────┼───────────────────────────────┼───────────────────────────────┤
+│ `#`          │ one char from NumberPattern   │ one Unicode Number character  │
+│ `$`          │ 1+ chars from NumberPattern   │ 1+ Unicode Number characters  │
+│ `@`          │ one char from AlphaPattern    │ one Unicode letter            │
+└──────────────┴───────────────────────────────┴───────────────────────────────┘
 ```
 
 For example:
@@ -435,7 +570,7 @@ allow:
 @###
 ```
 
-to match a Unicode letter followed by three Unicode decimal digits.
+to match a Unicode letter followed by three Unicode Number characters.
 
 `Unicode` also affects `#`, `$` and `@` when they occur inside a set.
 
@@ -454,8 +589,8 @@ HashNumeric
 Unicode
 ```
 
-matches one character which is either a Unicode letter or a Unicode decimal
-digit.
+matches one character which is either a Unicode letter or a Unicode Number
+character.
 
 Because Unicode letters already include `A-Z` and `a-z`, a construct such as:
 
@@ -597,7 +732,7 @@ Unicode
 means:
 
 ```text
-one Unicode letter or Unicode decimal digit
+one Unicode letter or Unicode Number character
 ```
 
 Magic characters whose corresponding option is not enabled are treated
@@ -868,6 +1003,10 @@ The same principle applies inside sets.
 present, the complete generated regular expression is matched
 case-sensitively.
 
+`CurlyBracketsWord` can contain the other mask constructs, so `{Option[A-Z]}`
+uses set syntax when `Sets` is enabled, and `{@##}` uses `AlphaAt` and
+`HashNumeric` when those options are enabled.
+
 ---
 
 # Examples
@@ -983,7 +1122,24 @@ Options:
     Unicode
 ```
 
-matches any single Unicode letter or Unicode decimal digit.
+matches any single Unicode letter or Unicode Number character.
+
+---
+
+### Word-bounded search
+
+```text
+Mask:
+    {Option[A-Z]}
+
+Options:
+    CurlyBracketsWord
+    Sets
+```
+
+With `RegExPOS`, this finds `OptionQ` in a longer value only when the complete
+matched segment is bounded by the beginning/end of the value or by
+non-alphanumeric characters.
 
 ---
 
@@ -1024,6 +1180,7 @@ With all syntax options enabled, the principal syntax is:
 │ `[$]`           │ one numeric character                                     │ Sets + DollarNumeric         │
 │ `[@]`           │ one alphabetic character                                  │ Sets + AlphaAt               │
 │ `[@#]`          │ one alphabetic or numeric character                       │ Sets + AlphaAt + HashNumeric │
+│ `{...}`         │ alphanumeric-bounded segment                              │ CurlyBracketsWord            │
 │ `\*`            │ literal `*`                                               │ BackslashEscaping            │
 │ `\?`            │ literal `?`                                               │ BackslashEscaping            │
 │ `\#`            │ literal `#`                                               │ BackslashEscaping            │
@@ -1034,8 +1191,10 @@ With all syntax options enabled, the principal syntax is:
 └─────────────────┴───────────────────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
-`Unicode` extends the meanings of `#`, `$` and `@` from ASCII digits and
-letters to their Unicode equivalents.
+`AlphaPattern` and `NumberPattern` define the non-Unicode alphabetic and
+numeric character classes used by the corresponding mask constructs and word
+boundaries. `Unicode` switches those operations to Unicode character
+properties, overriding the values stored therein.
 
 `CaseSensitive` changes the entire match from the default case-insensitive
 behavior to case-sensitive matching.
@@ -1045,3 +1204,16 @@ does not expose regular-expression groups, captures, lookarounds,
 backreferences or other advanced RegEx constructs. Characters that happen to
 be RegEx metacharacters are escaped internally and remain literal unless they
 are explicitly part of the mask syntax described above.
+
+---
+
+# Version History
+
+```text
+┌─────────────┬──────────────────────────────────────────────────────────────┐
+│ 08 Sep 2026 │ Initial release                                              │
+├─────────────┼──────────────────────────────────────────────────────────────┤
+│ 05 Oct 2026 │ Added RegExPOS, CurlyBracketsWord ({] words), configurable   │
+│             │ AlphaPattern/NumberPattern, and convenience WesternLetters   │
+└─────────────┴──────────────────────────────────────────────────────────────┘
+```
